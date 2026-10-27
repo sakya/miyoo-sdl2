@@ -6,6 +6,7 @@
 
 #include "../../SDL_internal.h"
 #include "../SDL_sysvideo.h"
+#include "SDL_render.h"
 
 #include <stdint.h>
 #include <stdbool.h>

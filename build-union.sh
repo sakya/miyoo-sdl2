@@ -7,7 +7,7 @@ for x in autoconf automake libtoolize make "${CROSS_COMPILE}gcc" "${CROSS_COMPIL
 export CC="${CROSS_COMPILE}gcc" CXX="${CROSS_COMPILE}g++" AR="${CROSS_COMPILE}ar" RANLIB="${CROSS_COMPILE}ranlib" STRIP="${CROSS_COMPILE}strip"
 export CFLAGS="${CFLAGS:--O2 -marm -mtune=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard}"
 export LDFLAGS="-L$ROOT/sdl2-master/mini/lib ${LDFLAGS:-}"
-(cd "$SRC" && ./autogen.sh)
+(cd "$SRC" && sh ./autogen.sh)
 mkdir -p "$ROOT/build-arm" "$ROOT/output"
 cd "$ROOT/build-arm"
 "$SRC/configure" --host=arm-linux-gnueabihf --prefix="$ROOT/output" --disable-static --enable-shared --enable-video-mini --enable-audio-mini --disable-video-x11 --disable-video-wayland --disable-video-kmsdrm --disable-video-vulkan --disable-video-opengl --disable-video-opengles --disable-video-opengles2 --disable-pulseaudio --disable-pipewire --disable-alsa --disable-oss --disable-dbus --disable-libudev --disable-hidapi
