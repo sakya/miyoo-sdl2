@@ -7,6 +7,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 #include <errno.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -15,7 +16,6 @@
 #include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <linux/soundcard.h>
-#include <json-c/json.h>
 
 #include "SDL_timer.h"
 #include "SDL_audio.h"
@@ -34,7 +34,58 @@ static MI_AUDIO_Attr_t stSetAttr;
 static MI_AUDIO_Attr_t stGetAttr;
 static MI_AO_CHN AoChn = 0;
 static MI_AUDIO_DEV AoDevId = 0;
-static struct json_object *jfile = NULL;
+
+/* Read the numeric volume setting without depending on json-c. */
+static int MINI_ReadConfiguredVolume(void)
+{
+    FILE *fp;
+    char data[4096];
+    size_t n;
+    char *p;
+
+    fp = fopen(JSON_APP_FILE, "rb");
+    if (fp == NULL) {
+        return 0;
+    }
+    n = fread(data, 1, sizeof(data) - 1, fp);
+    fclose(fp);
+    data[n] = '\0';
+
+    p = data;
+    while ((p = strchr(p, '"')) != NULL) {
+        char *key = p + 1;
+        char *end = strchr(key, '"');
+        char *value;
+        long v;
+        if (end == NULL) {
+            break;
+        }
+        p = end + 1;
+        if ((size_t)(end - key) != strlen(JSON_VOL_KEY) ||
+            strncmp(key, JSON_VOL_KEY, (size_t)(end - key)) != 0) {
+            continue;
+        }
+        value = p;
+        while (*value == ' ' || *value == '\t' || *value == '\n' || *value == '\r') {
+            value++;
+        }
+        if (*value++ != ':') {
+            continue;
+        }
+        while (*value == ' ' || *value == '\t' || *value == '\n' || *value == '\r') {
+            value++;
+        }
+        if (*value < '0' || *value > '9') {
+            continue;
+        }
+        v = strtol(value, &end, 10);
+        if (v >= 0 && v <= MAX_VOLUME && (*end == ',' || *end == '}' ||
+            *end == ' ' || *end == '\n' || *end == '\r' || *end == '\t')) {
+            return (int)v;
+        }
+    }
+    return 0;
+}
 
 static int set_volume_raw(int value, int add)
 {
@@ -147,16 +198,7 @@ static int MINI_OpenDevice(_THIS, void *handle, const char *devname, int iscaptu
         return SDL_OutOfMemory();
     }
 
-    jfile = json_object_from_file(JSON_APP_FILE);
-    if (jfile != NULL) {
-        struct json_object *volume = NULL;
-
-        json_object_object_get_ex(jfile, JSON_VOL_KEY, &volume);
-        cur_volume = json_object_get_int(volume);
-        //json_object_object_add(jfile, JSON_VOL_KEY, json_object_new_int(2));
-        //json_object_to_file(JSON_APP_FILE, jfile);
-        json_object_put(jfile);
-    }
+    cur_volume = MINI_ReadConfiguredVolume();
 
     stSetAttr.eBitwidth = E_MI_AUDIO_BIT_WIDTH_16;
     stSetAttr.eWorkmode = E_MI_AUDIO_MODE_I2S_MASTER;
