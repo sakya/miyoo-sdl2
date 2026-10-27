@@ -314,9 +314,11 @@ static int Mini_FillPrimitive(SDL_Rect physical, Uint32 color, SDL_BlendMode ble
     if (blend != SDL_BLENDMODE_BLEND)
         return SDL_SetError("Unsupported MINI primitive blend mode");
     if ((color >> 24) == 0) return 0;
+    SDL_Color mod = {255, 255, 255, 255};
+
     return GFX_CopyTexture(&pixel, 1, 1, sizeof(pixel),
-                           SDL_PIXELFORMAT_ARGB8888, source, physical,
-                           SDL_BLENDMODE_BLEND);
+                          SDL_PIXELFORMAT_ARGB8888, source, physical,
+                          SDL_BLENDMODE_BLEND, mod);
 }
 
 /* Draw clipped 1-pixel SDL primitives with the existing synchronous fill path.

@@ -7,7 +7,12 @@ SDL2 for the Miyoo Mini, base on https://github.com/steward-fu/sdl2 and optimize
 In a union-miyoomini-toolchain  shell:
 
 ```sh
-export CROSS_COMPILE=arm-linux-gnueabihf-  
+git clone https://github.com/sakya/miyoo-sdl2.git
+apt-get update && apt-get install -y autoconf automake libtool pkg-config cmake zip
+chmod +x build-union.sh
+chmod +x sdl2-master/sdl2/autogen.sh
+
+export CROSS_COMPILE=arm-linux-gnueabihf-
 ./build-union.sh 2>&1 | tee build.log
 ```
 
