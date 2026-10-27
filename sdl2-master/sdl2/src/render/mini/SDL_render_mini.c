@@ -305,17 +305,14 @@ static int Mini_FillPrimitive(SDL_Rect physical, Uint32 color, SDL_BlendMode ble
     SDL_Rect source = {0, 0, 1, 1};
     Uint32 pixel = color;
     SDL_Rect screen = {0, 0, FB_W, FB_H}, clipped;
+    SDL_Color mod = {255, 255, 255, 255};
+
     if (physical.w <= 0 || physical.h <= 0 ||
-        !SDL_IntersectRect(&screen, &physical, &clipped)) return 0;
-    physical = clipped;
-    if (blend == SDL_BLENDMODE_NONE ||
-        (blend == SDL_BLENDMODE_BLEND && (color >> 24) == 255))
-        return GFX_FillRect(physical, color);
-    if (blend != SDL_BLENDMODE_BLEND)
-        return SDL_SetError("Unsupported MINI primitive blend mode");
-    if ((color >> 24) == 0) return 0;
+        !SDL_IntersectRect(&screen, &physical, &clipped))
+        return 0;
+
     return GFX_CopyTexture(&pixel, 1, 1, sizeof(pixel),
-                          SDL_PIXELFORMAT_ARGB8888, source, physical,
+                          SDL_PIXELFORMAT_ARGB8888, source, clipped,
                           SDL_BLENDMODE_BLEND, mod);
 }
 
