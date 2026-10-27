@@ -1,0 +1,15 @@
+test_clip_invariants (phase16_regression.Regression.test_clip_invariants) ... ok
+test_critical_source_guards (phase16_regression.Regression.test_critical_source_guards) ... ok
+test_line_runs_preserve_pixels (phase16_regression.Regression.test_line_runs_preserve_pixels) ... ok
+test_modulation_identity (phase16_regression.Regression.test_modulation_identity) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.332s
+
+OK
+
+case,old_pixel_fills,new_run_fills,estimated_waits_with_batch8
+shallow,101,11,2
+diagonal,101,101,13
+steep,101,11,2
+horizontal,101,1,1
