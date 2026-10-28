@@ -18,6 +18,9 @@ typedef struct Mini_TextureData {
     uint32_t h;
     uint32_t fmt;
     uint32_t pitch;
+    MI_PHY physical;
+    SDL_bool dma;
+    SDL_bool dirty;
 } Mini_TextureData;
 
 typedef struct {
@@ -64,7 +67,20 @@ static int Mini_CreateTexture(SDL_Renderer *renderer, SDL_Texture *texture)
         SDL_free(t);
         return SDL_OutOfMemory();
     }
-    t->data = SDL_calloc((size_t)t->h, (size_t)t->pitch);
+    /* Prefer texture-owned DMA storage. Keep the heap/staging path available
+     * when the device's contiguous memory pool is exhausted. */
+    if (MI_SYS_MMA_Alloc(NULL, (MI_U32)(t->h * t->pitch), &t->physical) == MI_SUCCESS) {
+        if (MI_SYS_Mmap(t->physical, (MI_U32)(t->h * t->pitch), &t->data, TRUE) == MI_SUCCESS && t->data) {
+            t->dma = SDL_TRUE;
+            SDL_memset(t->data, 0, (size_t)t->h * t->pitch);
+        } else {
+            if (t->data) MI_SYS_Munmap(t->data, (MI_U32)(t->h * t->pitch));
+            MI_SYS_MMA_Free(t->physical);
+            t->data = NULL;
+        }
+    }
+    if (!t->dma) t->data = SDL_calloc((size_t)t->h, (size_t)t->pitch);
+    t->dirty = SDL_TRUE;
     if (!t->data) {
         debug("%s, failed to create texture data\n", __func__);
         SDL_free(t);
@@ -86,6 +102,7 @@ static int Mini_LockTexture(SDL_Renderer *renderer, SDL_Texture *texture, const 
         rect->y > (int)t->h || rect->h > (int)t->h - rect->y) {
         return SDL_SetError("Invalid MINI texture lock rectangle");
     }
+    if (t->dma && GFX_WaitPending() < 0) return -1;
     *pixels = (Uint8 *)t->data + rect->y * t->pitch +
               rect->x * SDL_BYTESPERPIXEL(t->fmt);
     *pitch = t->pitch;
@@ -104,17 +121,21 @@ static int Mini_UpdateTexture(SDL_Renderer *renderer, SDL_Texture *texture, cons
         pitch < rect->w * bpp) {
         return SDL_SetError("Invalid MINI texture update");
     }
+    if (t->dma && GFX_WaitPending() < 0) return -1;
     for (y = 0; y < rect->h; ++y) {
         SDL_memcpy((Uint8 *)t->data + (rect->y + y) * t->pitch + rect->x * bpp,
                    (const Uint8 *)pixels + y * pitch, rect->w * bpp);
     }
+    t->dirty = SDL_TRUE;
     return 0;
 }
 
 static void Mini_UnlockTexture(SDL_Renderer *renderer, SDL_Texture *texture)
 {
+    Mini_TextureData *t = (Mini_TextureData *)texture->driverdata;
     debug("%s\n", __func__);
     /* Lock writes directly to texture-owned storage. */
+    if (t) t->dirty = SDL_TRUE;
 }
 
 static void Mini_SetTextureScaleMode(SDL_Renderer *renderer, SDL_Texture *texture, SDL_ScaleMode scaleMode)
@@ -414,6 +435,7 @@ static int Mini_RunCommandQueue(SDL_Renderer *renderer, SDL_RenderCommand *cmd, 
     SDL_Rect viewport = {0, 0, vid_win ? vid_win->w : 0, vid_win ? vid_win->h : 0};
     SDL_Rect cliprect = {0, 0, 0, 0};
     SDL_bool clipping = SDL_FALSE;
+    if (GFX_WaitPending() < 0) return -1;
     for (; cmd; cmd = cmd->next) {
         switch (cmd->command) {
         case SDL_RENDERCMD_NO_OP:
@@ -552,8 +574,14 @@ static int Mini_RunCommandQueue(SDL_Renderer *renderer, SDL_RenderCommand *cmd, 
                 physical.x > FB_W || physical.w > FB_W - physical.x ||
                 physical.y > FB_H || physical.h > FB_H - physical.y)
                 return SDL_SetError("MINI copy exceeds physical framebuffer");
-            result = GFX_CopyTextureEx(t->data, (int)t->w, (int)t->h, (int)t->pitch,
-                                     t->fmt, src, physical, copy->blend, copy->color, copy->flip);
+            if (t->dma) {
+                result = GFX_CopyTextureResident(t->data, (int)t->w, (int)t->h, (int)t->pitch,
+                                                t->fmt, src, physical, copy->blend, copy->color,
+                                                copy->flip, t->physical, &t->dirty);
+            } else {
+                result = GFX_CopyTextureEx(t->data, (int)t->w, (int)t->h, (int)t->pitch,
+                                         t->fmt, src, physical, copy->blend, copy->color, copy->flip);
+            }
             if (result < 0) return result;
             break;
         }
@@ -561,7 +589,7 @@ static int Mini_RunCommandQueue(SDL_Renderer *renderer, SDL_RenderCommand *cmd, 
             return SDL_SetError("Unsupported MINI render command: %d", (int)cmd->command);
         }
     }
-    return 0;
+    return GFX_WaitPending();
 }
 
 static int Mini_RenderReadPixels(SDL_Renderer *renderer, const SDL_Rect *rect, Uint32 pixel_format, void *pixels, int pitch)
@@ -583,7 +611,15 @@ static void Mini_DestroyTexture(SDL_Renderer *renderer, SDL_Texture *texture)
     debug("%s\n", __func__);
     if (t) {
         if (t->data) {
-            SDL_free(t->data);
+            if (t->dma) {
+                /* Retire asynchronous GPU reads before releasing DMA storage.
+                 * If the wait fails, retain storage rather than free it early. */
+                if (GFX_WaitPending() < 0) return;
+                MI_SYS_Munmap(t->data, (MI_U32)(t->h * t->pitch));
+                MI_SYS_MMA_Free(t->physical);
+            } else {
+                SDL_free(t->data);
+            }
         }
         SDL_free(t);
         texture->driverdata = NULL;

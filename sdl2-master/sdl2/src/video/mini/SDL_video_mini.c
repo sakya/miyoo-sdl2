@@ -59,31 +59,39 @@ static struct fb_var_screeninfo mini_original_vinfo;
 static SDL_bool mini_original_vinfo_valid = SDL_FALSE;
 static size_t mini_frame_stride = 0;
 
-/* Only QuickFill commands are deferred. Texture blits continue to wait for
- * completion because they reuse one DMA staging allocation. A bounded batch
- * prevents an unbounded hardware queue. MI_GFX fences are ordered within the
- * same engine; waiting for the latest submitted fill completes earlier fills. */
-#define MINI_FILL_BATCH_MAX 8
-static MI_U16 mini_pending_fill_fence = 0;
-static unsigned mini_pending_fill_count = 0;
+/* QuickFill and resident texture blits share a bounded batch. Staging blits
+ * still wait because they reuse one DMA allocation. MI_GFX fences are ordered
+ * within the same engine; the latest fence completes earlier submissions.
+ * No additional pixel buffers are allocated for this batching. */
+#define MINI_GFX_BATCH_MAX 8
+static MI_U16 mini_pending_gfx_fence = 0;
+static unsigned mini_pending_gfx_count = 0;
 
-static int Mini_WaitPendingFills(void)
+int GFX_WaitPending(void)
 {
     MI_S32 rc;
-    if (!mini_pending_fill_count) return 0;
-    rc = MI_GFX_WaitAllDone(TRUE, mini_pending_fill_fence);
-    mini_pending_fill_count = 0;
-    mini_pending_fill_fence = 0;
+    if (!mini_pending_gfx_count) return 0;
+    rc = MI_GFX_WaitAllDone(TRUE, mini_pending_gfx_fence);
     if (rc != MI_SUCCESS)
-        return SDL_SetError("MI_GFX fill batch wait failed: %d", rc);
+        return SDL_SetError("MI_GFX batch wait failed: %d", rc);
+    mini_pending_gfx_count = 0;
+    mini_pending_gfx_fence = 0;
     return 0;
 }
 
+static int Mini_QueueFence(MI_U16 fence)
+{
+    mini_pending_gfx_fence = fence;
+    ++mini_pending_gfx_count;
+    if (mini_pending_gfx_count >= MINI_GFX_BATCH_MAX)
+        return GFX_WaitPending();
+    return 0;
+}
 
 static int Mini_QuitGFX(void)
 {
     /* Drain queued GPU writes before unmapping framebuffer or closing GFX. */
-    if (mini_gfx_ready) Mini_WaitPendingFills();
+    if (mini_gfx_ready && GFX_WaitPending() < 0) return -1;
     if (gfx.overlay.virAddr) {
         MI_SYS_Munmap(gfx.overlay.virAddr, (MI_U32)TMP_SIZE);
         gfx.overlay.virAddr = NULL;
@@ -236,7 +244,7 @@ void GFX_Quit(void)
 
 void GFX_Clear(void)
 {
-    if (Mini_WaitPendingFills() < 0) return;
+    if (GFX_WaitPending() < 0) return;
     if (mini_sys_ready && gfx.fb.virAddr && mini_frame_stride) {
         size_t bytes = mini_frame_stride * (size_t)gfx.vinfo.yres_virtual;
         if (bytes <= UINT32_MAX)
@@ -273,13 +281,11 @@ int GFX_FillRect(SDL_Rect rect, Uint32 argb)
     region.s32Ypos = rect.y;
     region.u32Width = rect.w;
     region.u32Height = rect.h;
+    if (mini_pending_gfx_count >= MINI_GFX_BATCH_MAX && GFX_WaitPending() < 0)
+        return -1;
     result = MI_GFX_QuickFill(&surface, &region, argb, &fence);
     if (result != MI_SUCCESS) return SDL_SetError("MI_GFX_QuickFill failed: %d", result);
-    mini_pending_fill_fence = fence;
-    ++mini_pending_fill_count;
-    if (mini_pending_fill_count >= MINI_FILL_BATCH_MAX)
-        return Mini_WaitPendingFills();
-    return 0;
+    return Mini_QueueFence(fence);
 }
 
 /* Bounded, explicit-format texture upload. Keep the legacy GFX_Copy for GFX_CB. */
@@ -299,14 +305,17 @@ static void Mini_SetBlitOptions(MI_GFX_Opt_t *opt, SDL_BlendMode blend,
         ? E_MI_GFX_DFB_BLEND_ALPHACHANNEL : E_MI_GFX_DFB_BLEND_NOFX;
 }
 
-int GFX_CopyTextureEx(const void *pixels, int width, int height, int pitch,
-                    Uint32 format, SDL_Rect src, SDL_Rect dst, SDL_BlendMode blend, SDL_Color mod, SDL_RendererFlip flip)
+static int Mini_CopyTexture(const void *pixels, int width, int height, int pitch,
+                    Uint32 format, SDL_Rect src, SDL_Rect dst, SDL_BlendMode blend, SDL_Color mod, SDL_RendererFlip flip,
+                    MI_PHY physical, SDL_bool *dirty)
 {
     MI_U16 fence = 0;
     MI_GFX_ColorFmt_e hwfmt;
     int bpp, row;
     size_t bytes;
     MI_S32 result;
+    SDL_bool direct = dirty && flip == SDL_FLIP_NONE &&
+                      mod.r == 255 && mod.g == 255 && mod.b == 255 && mod.a == 255;
     if (!pixels || width <= 0 || height <= 0 || pitch <= 0 ||
         src.x < 0 || src.y < 0 || src.w <= 0 || src.h <= 0 ||
         src.x > width || src.w > width - src.x ||
@@ -330,50 +339,56 @@ int GFX_CopyTextureEx(const void *pixels, int width, int height, int pitch,
         return SDL_Unsupported();
     if (flip & ~(SDL_FLIP_HORIZONTAL | SDL_FLIP_VERTICAL))
         return SDL_Unsupported();
+    if (mini_pending_gfx_count >= MINI_GFX_BATCH_MAX && GFX_WaitPending() < 0)
+        return -1;
     bytes = (size_t)src.w * (size_t)bpp * (size_t)src.h;
-    for (row = 0; row < src.h; ++row) {
-        const int source_y = src.y + ((flip & SDL_FLIP_VERTICAL) ? (src.h - 1 - row) : row);
-        const Uint8 *source = (const Uint8 *)pixels + (size_t)source_y * pitch + (size_t)src.x * bpp;
-        Uint8 *dest = (Uint8 *)gfx.tmp.virAddr + (size_t)row * src.w * bpp;
-        if (flip & SDL_FLIP_HORIZONTAL) {
-            int col;
-            for (col = 0; col < src.w; ++col)
-                SDL_memcpy(dest + (size_t)col * bpp,
-                           source + (size_t)(src.w - 1 - col) * bpp, (size_t)bpp);
-        } else {
-            SDL_memcpy(dest, source, (size_t)src.w * bpp);
+    if (!direct) {
+        /* Drain resident reads before entering the synchronous staging path. */
+        if (GFX_WaitPending() < 0) return -1;
+        for (row = 0; row < src.h; ++row) {
+            const int source_y = src.y + ((flip & SDL_FLIP_VERTICAL) ? (src.h - 1 - row) : row);
+            const Uint8 *source = (const Uint8 *)pixels + (size_t)source_y * pitch + (size_t)src.x * bpp;
+            Uint8 *dest = (Uint8 *)gfx.tmp.virAddr + (size_t)row * src.w * bpp;
+            if (flip & SDL_FLIP_HORIZONTAL) {
+                int col;
+                for (col = 0; col < src.w; ++col)
+                    SDL_memcpy(dest + (size_t)col * bpp,
+                               source + (size_t)(src.w - 1 - col) * bpp, (size_t)bpp);
+            } else {
+                SDL_memcpy(dest, source, (size_t)src.w * bpp);
+            }
         }
-    }
-    /* SDL modulation uses straight alpha and multiplies each channel by
-     * its modulation value / 255. Modify staging memory only: queued
-     * draws must never alter the texture's owned pixel storage. */
-    if (mod.r != 255 || mod.g != 255 || mod.b != 255 || mod.a != 255) {
-        size_t i, count = (size_t)src.w * (size_t)src.h;
-        if (format == SDL_PIXELFORMAT_ARGB8888) {
-            Uint32 *p = (Uint32 *)gfx.tmp.virAddr;
-            for (i = 0; i < count; ++i) {
-                Uint32 c = p[i];
-                Uint32 a = ((c >> 24) & 255) * mod.a / 255;
-                Uint32 r = ((c >> 16) & 255) * mod.r / 255;
-                Uint32 g = ((c >> 8) & 255) * mod.g / 255;
-                Uint32 b = (c & 255) * mod.b / 255;
-                p[i] = (a << 24) | (r << 16) | (g << 8) | b;
+        /* SDL modulation uses straight alpha and multiplies each channel by
+         * its modulation value / 255. Modify staging memory only: queued
+         * draws must never alter the texture's owned pixel storage. */
+        if (mod.r != 255 || mod.g != 255 || mod.b != 255 || mod.a != 255) {
+            size_t i, count = (size_t)src.w * (size_t)src.h;
+            if (format == SDL_PIXELFORMAT_ARGB8888) {
+                Uint32 *p = (Uint32 *)gfx.tmp.virAddr;
+                for (i = 0; i < count; ++i) {
+                    Uint32 c = p[i];
+                    Uint32 a = ((c >> 24) & 255) * mod.a / 255;
+                    Uint32 r = ((c >> 16) & 255) * mod.r / 255;
+                    Uint32 g = ((c >> 8) & 255) * mod.g / 255;
+                    Uint32 b = (c & 255) * mod.b / 255;
+                    p[i] = (a << 24) | (r << 16) | (g << 8) | b;
+                }
+            } else {
+                Uint16 *p = (Uint16 *)gfx.tmp.virAddr;
+                for (i = 0; i < count; ++i) {
+                    Uint16 c = p[i];
+                    /* Expand 5/6-bit channels before applying SDL's 8-bit mod. */
+                    Uint32 r = ((c >> 11) & 31) * 255 / 31;
+                    Uint32 g = ((c >> 5) & 63) * 255 / 63;
+                    Uint32 b = (c & 31) * 255 / 31;
+                    r = (r * mod.r / 255) * 31 / 255;
+                    g = (g * mod.g / 255) * 63 / 255;
+                    b = (b * mod.b / 255) * 31 / 255;
+                    p[i] = (Uint16)((r << 11) | (g << 5) | b);
+                }
+                /* RGB565 has no alpha channel; NONE ignores alpha modulation.
+                 * BLEND on RGB565 is rejected above. */
             }
-        } else {
-            Uint16 *p = (Uint16 *)gfx.tmp.virAddr;
-            for (i = 0; i < count; ++i) {
-                Uint16 c = p[i];
-                /* Expand 5/6-bit channels before applying SDL's 8-bit mod. */
-                Uint32 r = ((c >> 11) & 31) * 255 / 31;
-                Uint32 g = ((c >> 5) & 63) * 255 / 63;
-                Uint32 b = (c & 31) * 255 / 31;
-                r = (r * mod.r / 255) * 31 / 255;
-                g = (g * mod.g / 255) * 63 / 255;
-                b = (b * mod.b / 255) * 31 / 255;
-                p[i] = (Uint16)((r << 11) | (g << 5) | b);
-            }
-            /* RGB565 has no alpha channel; NONE ignores alpha modulation.
-             * BLEND on RGB565 is rejected above. */
         }
     }
     /* Do not let a preceding blit's blend state leak into this command.
@@ -390,6 +405,14 @@ int GFX_CopyTextureEx(const void *pixels, int width, int height, int pitch,
     gfx.hw.src.surf.u32Stride = src.w * bpp;
     gfx.hw.src.surf.eColorFmt = hwfmt;
     gfx.hw.src.surf.phyAddr = gfx.tmp.phyAddr;
+    if (direct) {
+        gfx.hw.src.rt.s32Xpos = src.x;
+        gfx.hw.src.rt.s32Ypos = src.y;
+        gfx.hw.src.surf.u32Width = width;
+        gfx.hw.src.surf.u32Height = height;
+        gfx.hw.src.surf.u32Stride = pitch;
+        gfx.hw.src.surf.phyAddr = physical;
+    }
     gfx.hw.dst.rt.s32Xpos = dst.x;
     gfx.hw.dst.rt.s32Ypos = dst.y;
     gfx.hw.dst.rt.u32Width = dst.w;
@@ -399,15 +422,35 @@ int GFX_CopyTextureEx(const void *pixels, int width, int height, int pitch,
     gfx.hw.dst.surf.u32Stride = (MI_U32)mini_frame_stride;
     gfx.hw.dst.surf.eColorFmt = E_MI_GFX_FMT_ARGB8888;
     gfx.hw.dst.surf.phyAddr = Mini_CurrentFBAddress();
-    if (Mini_WaitPendingFills() < 0) return -1;
-    result = MI_SYS_FlushInvCache(gfx.tmp.virAddr, bytes);
-    if (result != MI_SUCCESS) return SDL_SetError("MINI staging cache flush failed: %d", result);
+    if (direct) {
+        if (*dirty) {
+            result = MI_SYS_FlushInvCache((void *)pixels, (MI_U32)((size_t)pitch * height));
+            if (result != MI_SUCCESS) return SDL_SetError("MINI texture cache flush failed: %d", result);
+            *dirty = SDL_FALSE;
+        }
+    } else {
+        result = MI_SYS_FlushInvCache(gfx.tmp.virAddr, bytes);
+        if (result != MI_SUCCESS) return SDL_SetError("MINI staging cache flush failed: %d", result);
+    }
     result = MI_GFX_BitBlit(&gfx.hw.src.surf, &gfx.hw.src.rt,
                             &gfx.hw.dst.surf, &gfx.hw.dst.rt, &gfx.hw.opt, &fence);
     if (result != MI_SUCCESS) return SDL_SetError("MI_GFX_BitBlit failed: %d", result);
-    result = MI_GFX_WaitAllDone(TRUE, fence);
-    if (result != MI_SUCCESS) return SDL_SetError("MI_GFX_WaitAllDone failed: %d", result);
-    return 0;
+    result = Mini_QueueFence(fence);
+    if (result < 0) return result;
+    return direct ? 0 : GFX_WaitPending();
+}
+
+int GFX_CopyTextureEx(const void *pixels, int width, int height, int pitch,
+                    Uint32 format, SDL_Rect src, SDL_Rect dst, SDL_BlendMode blend, SDL_Color mod, SDL_RendererFlip flip)
+{
+    return Mini_CopyTexture(pixels, width, height, pitch, format, src, dst, blend, mod, flip, 0, NULL);
+}
+
+int GFX_CopyTextureResident(const void *pixels, int width, int height, int pitch,
+                    Uint32 format, SDL_Rect src, SDL_Rect dst, SDL_BlendMode blend, SDL_Color mod, SDL_RendererFlip flip,
+                    MI_PHY physical, SDL_bool *dirty)
+{
+    return Mini_CopyTexture(pixels, width, height, pitch, format, src, dst, blend, mod, flip, physical, dirty);
 }
 
 int GFX_CopyTexture(const void *pixels, int width, int height, int pitch,
@@ -427,6 +470,7 @@ int GFX_Copy(const void *pixels, SDL_Rect srt, SDL_Rect drt, int pitch, int alph
     if (!pixels || !gfx.tmp.virAddr || pitch <= 0 || srt.h <= 0 ||
         (size_t)srt.h > (size_t)TMP_SIZE / (size_t)pitch)
         return SDL_SetError("Invalid MINI legacy copy buffer");
+    if (GFX_WaitPending() < 0) return -1;
     if (pixels != gfx.tmp.virAddr)
         SDL_memmove(gfx.tmp.virAddr, pixels, (size_t)srt.h * (size_t)pitch);
 
@@ -452,19 +496,18 @@ int GFX_Copy(const void *pixels, SDL_Rect srt, SDL_Rect drt, int pitch, int alph
     gfx.hw.dst.surf.eColorFmt = E_MI_GFX_FMT_ARGB8888;
     gfx.hw.dst.surf.phyAddr = Mini_CurrentFBAddress();
 
-    if (Mini_WaitPendingFills() < 0) return -1;
+    if (GFX_WaitPending() < 0) return -1;
     if (MI_SYS_FlushInvCache(gfx.tmp.virAddr, (size_t)pitch * (size_t)srt.h) != MI_SUCCESS)
         return SDL_SetError("MINI legacy cache flush failed");
     if (MI_GFX_BitBlit(&gfx.hw.src.surf, &gfx.hw.src.rt, &gfx.hw.dst.surf, &gfx.hw.dst.rt, &gfx.hw.opt, &u16Fence) != MI_SUCCESS)
         return SDL_SetError("MINI legacy blit failed");
-    if (MI_GFX_WaitAllDone(TRUE, u16Fence) != MI_SUCCESS)
-        return SDL_SetError("MINI legacy blit wait failed");
-    return 0;
+    if (Mini_QueueFence(u16Fence) < 0) return -1;
+    return GFX_WaitPending();
 }
 
 void GFX_Flip(void)
 {
-    if (Mini_WaitPendingFills() < 0) return;
+    if (GFX_WaitPending() < 0) return;
     debug("%s\n", __func__);
     if (gfx.fb_dev >= 0 && ioctl(gfx.fb_dev, FBIOPAN_DISPLAY, &gfx.vinfo) == 0)
         gfx.vinfo.yoffset = (gfx.vinfo.yoffset == 0) ? gfx.vinfo.yres : 0;

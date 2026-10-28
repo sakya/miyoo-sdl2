@@ -52,6 +52,7 @@ typedef struct _GFX {
 } GFX;
 
 void GFX_Clear(void);
+int GFX_WaitPending(void);
 int GFX_FillRect(SDL_Rect rect, Uint32 argb);
 void GFX_Flip(void);
 int GFX_CopyTexture(const void *pixels, int width, int height, int pitch, Uint32 format, SDL_Rect srcrect, SDL_Rect dstrect, SDL_BlendMode blend, SDL_Color mod);
@@ -59,6 +60,7 @@ int GFX_Copy(const void *pixels, SDL_Rect srcrect, SDL_Rect dstrect, int pitch, 
 
 
 int GFX_CopyTextureEx(const void *pixels, int width, int height, int pitch, Uint32 format, SDL_Rect srcrect, SDL_Rect dstrect, SDL_BlendMode blend, SDL_Color mod, SDL_RendererFlip flip);
+int GFX_CopyTextureResident(const void *pixels, int width, int height, int pitch, Uint32 format, SDL_Rect srcrect, SDL_Rect dstrect, SDL_BlendMode blend, SDL_Color mod, SDL_RendererFlip flip, MI_PHY physical, SDL_bool *dirty);
 
 #endif
 
