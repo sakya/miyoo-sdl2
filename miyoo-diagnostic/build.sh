@@ -1,5 +1,11 @@
 #!/bin/sh
 set -eu
+# Copy library
+mkdir -p lib
+cp -L ../output/lib/libSDL2-2.0.so.0 lib/
+cp ../sdl2-master/prebuilt/640x480/libEGL.so lib/
+cp ../sdl2-master/prebuilt/640x480/libGLESv2.so lib/
+
 # Build using the same compiler/sysroot used to build the custom SDL2.
 HERE="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 ROOT="$(dirname "$HERE")"
