@@ -6,3 +6,4 @@ FASE*.md
 _to_delete
 build/
 work/
+.vscode/
