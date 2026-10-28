@@ -1,10 +1,10 @@
-# Miyoo Mini / Mini Plus — SDL2 diagnostic (fase 16)
+# Miyoo Mini / Mini Plus — SDL2 diagnostic (phase 16)
 
-Questo pacchetto contiene **il sorgente del test**, non un eseguibile ARM già compilato.
+This package contains **the test source code**, not a precompiled ARM executable.
 
-## Compilazione
+## Building
 
-Usare il compilatore della union-miyoomini-toolchain e `sdl2-config` della **stessa build SDL2 modificata** (fase 16). Ad esempio, dopo aver configurato il toolchain e installato SDL2 nel sysroot:
+Use the compiler from union-miyoomini-toolchain and `sdl2-config` from the **same modified SDL2 build** (phase 16). For example, after configuring the toolchain and installing SDL2 in the sysroot:
 
 ```sh
 export CC=/percorso/toolchain/bin/arm-linux-gnueabihf-gcc
@@ -13,79 +13,79 @@ sh build.sh
 file miyoo_sdl2_diagnostic
 ```
 
-I percorsi sono indicativi: adattarli alla toolchain installata. Se `sdl2-config` restituisce percorsi host anziché target, correggere le opzioni di compilazione e linking.
+These paths are placeholders: adjust them to your installed toolchain. If `sdl2-config` returns host paths instead of target paths, correct the compiler and linker options.
 
-## Esecuzione
+## Running
 
-1. Copiare `miyoo_sdl2_diagnostic`, `run.sh` e la libreria SDL2 modificata nella directory sulla SD. Mettere la libreria in `lib/` **solo se necessario**; verificare che il binario usi la versione modificata e non quella di sistema.
-2. Avviare `run.sh` dal launcher o da shell sulla console. Non lanciare il test mentre un altro programma usa il framebuffer.
-3. Vengono mostrate 7 scene per circa 1,8 secondi ciascuna: barre RGB, blending rettangoli, linee diagonali, texture/scaling/clipping, modulazione, flip, viewport/clipping. Ogni scena viene salvata automaticamente in BMP nella cartella `screenshots/`; `ESC` interrompe.
-4. Il test esegue poi 15 benchmark di 120 frame ciascuno: fill e copie con carichi crescenti, texture grandi, flip, modulazione e aggiornamenti streaming.
-5. Restituire `miyoo-results.csv`, `miyoo-stdout.log`, la cartella `screenshots/`, modello Miyoo (Mini/Mini Plus), firmware e versione della SDL2.
+1. Copy `miyoo_sdl2_diagnostic`, `run.sh`, and the modified SDL2 library to a directory on the SD card. Place the library in `lib/` **only if needed**; verify that the executable uses the modified version rather than the system library.
+2. Start `run.sh` from the launcher or a shell on the handheld. Do not run the test while another program is using the framebuffer.
+3. Seven scenes are displayed for approximately 1.8 seconds each: RGB bars, rectangle blending, diagonal lines, textures/scaling/clipping, modulation, flips, and viewport/clipping. Each scene is automatically saved as a BMP in `screenshots/`; press `ESC` to stop.
+4. The test then runs 15 benchmarks of 120 frames each: fills and copies with increasing workloads, large textures, flips, modulation, and streaming updates.
+5. Provide `miyoo-results.csv`, `miyoo-stdout.log`, the `screenshots/` directory, the Miyoo model (Mini/Mini Plus), firmware, and SDL2 version.
 
-## Screenshot
+## Screenshots
 
-Sono salvati sette file da `screenshots/scene-00-bars.bmp` a
-`screenshots/scene-06-viewport.bmp`. I nomi intermedi indicano blending, linee,
-texture, modulazione e flip. I file vengono sovrascritti a ogni esecuzione.
+Seven files are saved, from `screenshots/scene-00-bars.bmp` to
+`screenshots/scene-06-viewport.bmp`. The intermediate filenames identify blending,
+lines, textures, modulation, and flips. Files are overwritten on each run.
 
-La cattura legge la pagina effettivamente visualizzata di `/dev/fb0`, dopo il
-flush e la presentazione della scena. Usa una mappatura MI_SYS non cached,
-interpreta i canali colore del framebuffer e corregge la rotazione di 180 gradi
-del backend MINI. Il salvataggio avviene prima dei benchmark, fuori dai tempi
-misurati. Non richiede SDL_image, PNG o nuovi buffer framebuffer: viene usato
-un solo buffer di riga (1920 byte per una schermata 640×480). I sette BMP a
-640×480 occupano complessivamente circa 6,2 MiB sulla SD.
+Capture reads the page currently displayed by `/dev/fb0`, after the scene has
+been flushed and presented. It uses an uncached MI_SYS mapping, interprets the
+framebuffer's color channels, and corrects the MINI backend's 180-degree rotation.
+Screenshots are saved before the benchmarks, outside the measured intervals.
+No SDL_image, PNG support, or additional framebuffer buffers are required:
+only one row buffer is used (1920 bytes for a 640×480 image). The seven BMPs
+at 640×480 occupy approximately 6.2 MiB in total on the SD card.
 
-`build.sh` collega anche `libmi_sys` inclusa in `sdl2-master/mini/lib` e usa gli
-header SDK in `sdl2-master/mini/inc`. Non occorre ricompilare SDL2 per questa
-funzione, ma va ricompilato e ricopiato l'eseguibile diagnostico.
+`build.sh` also links `libmi_sys`, included in `sdl2-master/mini/lib`, and uses
+the SDK headers in `sdl2-master/mini/inc`. This feature does not require rebuilding
+SDL2, but you must rebuild and copy the diagnostic executable again.
 
-L'esito di ogni salvataggio appare nel CSV. Un errore di cattura produce `FAIL`
-e un codice di uscita non zero, senza impedire gli altri test. Per disattivare
-le catture:
+Each save result appears in the CSV. A capture error produces `FAIL` and a
+nonzero exit code without preventing the remaining tests from running.
+To disable screenshots:
 
 ```sh
 MIYOO_SCREENSHOTS=0 sh run.sh
 ```
 
-## Interpretazione
+## Interpreting the results
 
-Il benchmark versione 2 mantiene i casi `opaque_fill`, `texture_copy` e
-`alpha_fill` con 24 operazioni per frame. Aggiunge copie con 96 e 384 sprite,
-fill opachi e alpha con 384 rettangoli, flip orizzontale/verticale e modulazione
-colore/alpha con 96 sprite, aggiornamenti tramite `SDL_UpdateTexture` e
-lock/unlock, e una texture 256×256 disegnata a 128×128 con 24 e 96 sprite.
-Posizioni e colori dei benchmark sono cambiati: per confrontare due versioni
-della libreria usare lo stesso eseguibile diagnostico versione 2.
+Benchmark version 2 retains the `opaque_fill`, `texture_copy`, and `alpha_fill`
+cases with 24 operations per frame. It adds copies with 96 and 384 sprites,
+opaque and alpha fills with 384 rectangles, horizontal/vertical flips and
+color/alpha modulation with 96 sprites, updates through `SDL_UpdateTexture`
+and lock/unlock, and a 256×256 texture drawn at 128×128 with 24 and 96 sprites.
+Benchmark positions and colors have changed: use the same version 2 diagnostic
+executable when comparing two library versions.
 
-Ogni riga `benchmark` registra anche:
+Each `benchmark` row also records:
 
-- `submit_ms`: tempo totale di preparazione e invio dei comandi, inclusi gli
-  aggiornamenti streaming. Può comprendere attese dovute a flush automatici.
-- `flush_ms`: tempo totale nelle chiamate `SDL_RenderFlush`, inclusa l'attesa
-  delle operazioni hardware accodate nel backend MINI.
-- `present_ms`: tempo totale nelle chiamate `SDL_RenderPresent`.
-- `min_frame_ms` e `max_frame_ms`: durata minima e massima osservata per frame.
-- `errors`: errori rilevati dalle chiamate SDL controllate nel caso corrente.
+- `submit_ms`: total time spent preparing and submitting commands, including
+  streaming updates. This may include waits caused by automatic flushes.
+- `flush_ms`: total time spent in `SDL_RenderFlush`, including waits for hardware
+  operations queued by the MINI backend.
+- `present_ms`: total time spent in `SDL_RenderPresent`.
+- `min_frame_ms` and `max_frame_ms`: minimum and maximum observed frame duration.
+- `errors`: errors reported by the checked SDL calls in the current case.
 
-I tre tempi sono totali sull'intero caso, non medie per frame né timestamp GPU.
-`SDL_RenderPresent` non restituisce un codice di errore: controllare anche il log
-e l'output visivo. Un caso con errori non è valido per confrontare le prestazioni.
+The three timings are totals for the entire case, not per-frame averages or GPU
+timestamps. `SDL_RenderPresent` does not return an error code: also check the log
+and visual output. A case with errors is not valid for performance comparisons.
 
-Per una prova rapida o più lunga, impostare da shell sulla console:
+For a shorter or longer run, set the frame count from a shell on the handheld:
 
 ```sh
 MIYOO_BENCH_FRAMES=30 sh run.sh
 ```
 
-Il valore predefinito è 120; sono accettati valori da 1 a 10000. Il diagnostico
-aggiunge circa 528 KiB di dati al picco: texture grande da 256 KiB, buffer CPU
-temporaneo da 256 KiB e buffer streaming da 16 KiB. Il buffer temporaneo viene
-liberato prima dei benchmark della texture grande. L'accodamento nel backend
-non richiede nuovi buffer pixel: riusa le texture DMA residenti e limita a otto
-le operazioni in volo, aspettandole prima di modifiche, rilascio e presentazione.
+The default is 120; values from 1 to 10000 are accepted. The diagnostic adds
+approximately 528 KiB of data at peak: a 256 KiB large texture, a temporary
+256 KiB CPU buffer, and a 16 KiB streaming buffer. The temporary buffer is freed
+before the large-texture benchmarks. Backend batching requires no additional
+pixel buffers: it reuses resident DMA textures and limits operations in flight
+to eight, waiting for completion before modifications, release, and presentation.
 
-`PASS` significa solo che la chiamata controllata ha restituito successo: **non** garantisce pixel corretti. FPS sono indicativi e dipendono da present/vsync e carico. Il programma salva i pixel del framebuffer, ma non esegue confronto automatico con il renderer software. La nuova funzione screenshot non è ancora verificata su hardware.
+`PASS` only means that the checked call succeeded: it **does not** guarantee correct pixels. FPS values are indicative and depend on presentation/vsync and workload. The program saves framebuffer pixels but does not automatically compare them with the software renderer. The new screenshot feature has not yet been verified on hardware.
 
-Attenzione: questo programma interagisce direttamente con il driver video custom; testare con SD e dati salvati al sicuro.
+Warning: this program interacts directly with the custom video driver; test with your SD card and data safely backed up.
