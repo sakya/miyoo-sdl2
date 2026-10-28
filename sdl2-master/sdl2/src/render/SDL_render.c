@@ -966,7 +966,6 @@ SDL_CreateRenderer(SDL_Window *window, int index, Uint32 flags)
     Android_ActivityMutex_Lock_Running();
 #endif
 
-    flags|= SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC;
     if(!window) {
         SDL_SetError("Invalid window (in renderer)");
         goto error;
