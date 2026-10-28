@@ -280,7 +280,8 @@ static int Mini_QueueCopyEx(SDL_Renderer *renderer, SDL_RenderCommand *cmd, SDL_
 
 /* Map logical rectangle edges independently. This prevents gaps between
  * adjacent rectangles when the window-to-framebuffer scale is fractional.
- * The framebuffer is mounted 180 degrees relative to SDL's X axis. */
+ * The framebuffer is mounted 180 degrees relative to SDL coordinates, so both
+ * axes must be reversed before submitting the physical rectangle. */
 static SDL_Rect Mini_PhysicalRect(SDL_Rect dst)
 {
     const double sx = (double)FB_W / (double)vid_win->w;
@@ -290,8 +291,8 @@ static SDL_Rect Mini_PhysicalRect(SDL_Rect dst)
     const double oy = ((double)FB_H - (double)vid_win->h * scale) * 0.5;
     const double x0 = ox + ((double)vid_win->w - ((double)dst.x + dst.w)) * scale;
     const double x1 = ox + ((double)vid_win->w - (double)dst.x) * scale;
-    const double y0 = oy + (double)dst.y * scale;
-    const double y1 = oy + ((double)dst.y + dst.h) * scale;
+    const double y0 = oy + ((double)vid_win->h - ((double)dst.y + dst.h)) * scale;
+    const double y1 = oy + ((double)vid_win->h - (double)dst.y) * scale;
     SDL_Rect p;
     p.x = (int)SDL_floor(x0);
     p.y = (int)SDL_floor(y0);
