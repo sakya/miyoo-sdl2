@@ -416,6 +416,10 @@ static int Mini_RunCommandQueue(SDL_Renderer *renderer, SDL_RenderCommand *cmd, 
     SDL_bool clipping = SDL_FALSE;
     for (; cmd; cmd = cmd->next) {
         switch (cmd->command) {
+        case SDL_RENDERCMD_NO_OP:
+        case SDL_RENDERCMD_SETDRAWCOLOR:
+            /* Each draw command already carries its color and blend mode. */
+            break;
         case SDL_RENDERCMD_SETVIEWPORT:
             viewport = cmd->data.viewport.rect;
             break;
@@ -503,7 +507,8 @@ static int Mini_RunCommandQueue(SDL_Renderer *renderer, SDL_RenderCommand *cmd, 
             }
             break;
         }
-        case SDL_RENDERCMD_COPY: {
+        case SDL_RENDERCMD_COPY:
+        case SDL_RENDERCMD_COPY_EX: {
             Mini_CopyCommand *copy;
             SDL_Texture *texture = cmd->data.draw.texture;
             Mini_TextureData *t = texture ? (Mini_TextureData *)texture->driverdata : NULL;
