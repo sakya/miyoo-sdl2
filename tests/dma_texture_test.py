@@ -256,29 +256,33 @@ int main(void)
 '''
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--cc', default='gcc')
-    args = parser.parse_args()
+def run_test(program, cc):
     texture_struct = RENDER[RENDER.index('typedef struct Mini_TextureData'):]
     texture_struct = texture_struct[:texture_struct.index('} Mini_TextureData;') + len('} Mini_TextureData;')]
     render_functions = '\n'.join(function(RENDER, name) for name in (
         'Mini_CreateTexture', 'Mini_LockTexture', 'Mini_UpdateTexture',
         'Mini_UnlockTexture', 'Mini_DestroyTexture'))
     video_functions = '\n'.join(function(VIDEO, name) for name in (
-        'GFX_FillRect', 'Mini_SetBlitOptions', 'Mini_CopyTexture', 'GFX_CopyTextureEx',
+        'GFX_FillRect', 'Mini_SetBlitOptions', 'Mini_StageTexture', 'Mini_CopyTexture', 'GFX_CopyTextureEx',
         'GFX_CopyTextureResident'))
     scheduler = VIDEO[VIDEO.index('#define MINI_GFX_BATCH_MAX'):VIDEO.index('static int Mini_QuitGFX')]
     with tempfile.TemporaryDirectory(prefix='mini-dma-') as temp:
         source = Path(temp) / 'test.c'
         exe = Path(temp) / 'test.exe'
-        source.write_text(PREFIX + scheduler + texture_struct + render_functions + video_functions + TEST)
-        subprocess.run([args.cc, '-std=c99', '-Wall', '-Wextra',
+        source.write_text(PREFIX + scheduler + texture_struct + render_functions + video_functions + program)
+        subprocess.run([cc, '-std=c99', '-O2', '-fno-strict-aliasing', '-Wall', '-Wextra',
                         '-Wno-unused-parameter', '-Werror=declaration-after-statement',
                         '-I' + str(ROOT / 'sdl2-master/sdl2/include'),
                         '-I' + str(ROOT / 'sdl2-master/mini/inc'),
                         str(source), '-o', str(exe)], check=True)
         subprocess.run([str(exe)], check=True)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--cc', default='gcc')
+    args = parser.parse_args()
+    run_test(TEST, args.cc)
 
 
 if __name__ == '__main__':

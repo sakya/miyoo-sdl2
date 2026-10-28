@@ -53,6 +53,7 @@ typedef struct _GFX {
 
 void GFX_Clear(void);
 int GFX_WaitPending(void);
+void GFX_InvalidateTexture(const void *pixels);
 int GFX_FillRect(SDL_Rect rect, Uint32 argb);
 void GFX_Flip(void);
 int GFX_CopyTexture(const void *pixels, int width, int height, int pitch, Uint32 format, SDL_Rect srcrect, SDL_Rect dstrect, SDL_BlendMode blend, SDL_Color mod);

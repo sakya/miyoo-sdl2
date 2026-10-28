@@ -15,8 +15,9 @@ ROOT="$(dirname "$HERE")"
 # are deliberately not embedded as runtime rpaths on the handheld.
 SDL_FLAGS=$("$SDL2_CONFIG" --cflags --libs)
 "$CC" -O2 -std=c99 -Wall -Wextra "$HERE/diagnostic.c" \
+    "-I$ROOT/sdl2-master/mini/inc" \
     -o "$HERE/miyoo_sdl2_diagnostic" \
     "-Wl,-rpath-link,$ROOT/output/lib" \
     "-Wl,-rpath-link,$ROOT/sdl2-master/prebuilt/640x480" \
     "-Wl,-rpath-link,$ROOT/sdl2-master/mini/lib" \
-    $SDL_FLAGS
+    $SDL_FLAGS "-L$ROOT/sdl2-master/mini/lib" -lmi_sys

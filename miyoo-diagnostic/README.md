@@ -19,9 +19,35 @@ I percorsi sono indicativi: adattarli alla toolchain installata. Se `sdl2-config
 
 1. Copiare `miyoo_sdl2_diagnostic`, `run.sh` e la libreria SDL2 modificata nella directory sulla SD. Mettere la libreria in `lib/` **solo se necessario**; verificare che il binario usi la versione modificata e non quella di sistema.
 2. Avviare `run.sh` dal launcher o da shell sulla console. Non lanciare il test mentre un altro programma usa il framebuffer.
-3. Vengono mostrate 7 scene per circa 1,8 secondi ciascuna: barre RGB, blending rettangoli, linee diagonali, texture/scaling/clipping, modulazione, flip, viewport/clipping. Fotografare o annotare anomalie; `ESC` interrompe.
+3. Vengono mostrate 7 scene per circa 1,8 secondi ciascuna: barre RGB, blending rettangoli, linee diagonali, texture/scaling/clipping, modulazione, flip, viewport/clipping. Ogni scena viene salvata automaticamente in BMP nella cartella `screenshots/`; `ESC` interrompe.
 4. Il test esegue poi 15 benchmark di 120 frame ciascuno: fill e copie con carichi crescenti, texture grandi, flip, modulazione e aggiornamenti streaming.
-5. Restituire `miyoo-results.csv`, `miyoo-stdout.log`, modello Miyoo (Mini/Mini Plus), firmware, versione della SDL2 e foto delle scene anomale.
+5. Restituire `miyoo-results.csv`, `miyoo-stdout.log`, la cartella `screenshots/`, modello Miyoo (Mini/Mini Plus), firmware e versione della SDL2.
+
+## Screenshot
+
+Sono salvati sette file da `screenshots/scene-00-bars.bmp` a
+`screenshots/scene-06-viewport.bmp`. I nomi intermedi indicano blending, linee,
+texture, modulazione e flip. I file vengono sovrascritti a ogni esecuzione.
+
+La cattura legge la pagina effettivamente visualizzata di `/dev/fb0`, dopo il
+flush e la presentazione della scena. Usa una mappatura MI_SYS non cached,
+interpreta i canali colore del framebuffer e corregge la rotazione di 180 gradi
+del backend MINI. Il salvataggio avviene prima dei benchmark, fuori dai tempi
+misurati. Non richiede SDL_image, PNG o nuovi buffer framebuffer: viene usato
+un solo buffer di riga (1920 byte per una schermata 640×480). I sette BMP a
+640×480 occupano complessivamente circa 6,2 MiB sulla SD.
+
+`build.sh` collega anche `libmi_sys` inclusa in `sdl2-master/mini/lib` e usa gli
+header SDK in `sdl2-master/mini/inc`. Non occorre ricompilare SDL2 per questa
+funzione, ma va ricompilato e ricopiato l'eseguibile diagnostico.
+
+L'esito di ogni salvataggio appare nel CSV. Un errore di cattura produce `FAIL`
+e un codice di uscita non zero, senza impedire gli altri test. Per disattivare
+le catture:
+
+```sh
+MIYOO_SCREENSHOTS=0 sh run.sh
+```
 
 ## Interpretazione
 
@@ -60,6 +86,6 @@ liberato prima dei benchmark della texture grande. L'accodamento nel backend
 non richiede nuovi buffer pixel: riusa le texture DMA residenti e limita a otto
 le operazioni in volo, aspettandole prima di modifiche, rilascio e presentazione.
 
-`PASS` significa solo che la chiamata SDL2 ha restituito successo: **non** garantisce pixel corretti. FPS sono indicativi e dipendono da present/vsync e carico. Il programma non legge i pixel dal framebuffer e non esegue confronto automatico con il renderer software. L'esecuzione non è stata verificata su hardware.
+`PASS` significa solo che la chiamata controllata ha restituito successo: **non** garantisce pixel corretti. FPS sono indicativi e dipendono da present/vsync e carico. Il programma salva i pixel del framebuffer, ma non esegue confronto automatico con il renderer software. La nuova funzione screenshot non è ancora verificata su hardware.
 
 Attenzione: questo programma interagisce direttamente con il driver video custom; testare con SD e dati salvati al sicuro.

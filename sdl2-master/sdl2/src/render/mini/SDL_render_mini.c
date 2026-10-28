@@ -103,6 +103,7 @@ static int Mini_LockTexture(SDL_Renderer *renderer, SDL_Texture *texture, const 
         return SDL_SetError("Invalid MINI texture lock rectangle");
     }
     if (t->dma && GFX_WaitPending() < 0) return -1;
+    GFX_InvalidateTexture(t->data);
     *pixels = (Uint8 *)t->data + rect->y * t->pitch +
               rect->x * SDL_BYTESPERPIXEL(t->fmt);
     *pitch = t->pitch;
@@ -122,6 +123,7 @@ static int Mini_UpdateTexture(SDL_Renderer *renderer, SDL_Texture *texture, cons
         return SDL_SetError("Invalid MINI texture update");
     }
     if (t->dma && GFX_WaitPending() < 0) return -1;
+    GFX_InvalidateTexture(t->data);
     for (y = 0; y < rect->h; ++y) {
         SDL_memcpy((Uint8 *)t->data + (rect->y + y) * t->pitch + rect->x * bpp,
                    (const Uint8 *)pixels + y * pitch, rect->w * bpp);
@@ -135,7 +137,10 @@ static void Mini_UnlockTexture(SDL_Renderer *renderer, SDL_Texture *texture)
     Mini_TextureData *t = (Mini_TextureData *)texture->driverdata;
     debug("%s\n", __func__);
     /* Lock writes directly to texture-owned storage. */
-    if (t) t->dirty = SDL_TRUE;
+    if (t) {
+        GFX_InvalidateTexture(t->data);
+        t->dirty = SDL_TRUE;
+    }
 }
 
 static void Mini_SetTextureScaleMode(SDL_Renderer *renderer, SDL_Texture *texture, SDL_ScaleMode scaleMode)
@@ -610,6 +615,7 @@ static void Mini_DestroyTexture(SDL_Renderer *renderer, SDL_Texture *texture)
 
     debug("%s\n", __func__);
     if (t) {
+        GFX_InvalidateTexture(t->data);
         if (t->data) {
             if (t->dma) {
                 /* Retire asynchronous GPU reads before releasing DMA storage.

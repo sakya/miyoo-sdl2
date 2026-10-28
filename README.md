@@ -18,6 +18,20 @@ export CROSS_COMPILE=arm-linux-gnueabihf-
 
 The build results are in `output/`
 
+## Texture performance
+
+Resident DMA textures avoid repeated uploads for plain copies. Color/alpha
+modulation and flips reuse the last transformed source rectangle in the existing
+staging buffer. Repeated identical transformations can be batched; another
+texture, source rectangle or transformation replaces that entry. Texture writes,
+locks, destruction and other staging-buffer users invalidate it.
+
+New transformations combine copying and modulation in one pass. Aligned
+horizontal flips use whole-pixel loads/stores; unaligned sources keep a safe
+copy path. No extra pixel buffers are allocated for this cache, only a few dozen
+bytes of metadata. Compare results using the same version 2 diagnostic executable
+against each library build; hardware performance must be measured on the device.
+
 To build you need autoconf, automake, libtool, make e ARM toolchain.
 
 ## Original precompiled libraries
