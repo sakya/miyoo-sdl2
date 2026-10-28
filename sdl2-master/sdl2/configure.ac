@@ -2411,7 +2411,7 @@ CheckMiniVideo()
         have_video=yes
         have_video_mini=yes
         EXTRA_CFLAGS="$EXTRA_CFLAGS -DMINI -fPIC -mcpu=cortex-a7 -mfpu=neon-vfpv4 -O3 -I${srcdir}/../mini/inc"
-        EXTRA_LDFLAGS="$EXTRA_LDFLAGS -lEGL -lGLESv2"
+        EXTRA_LDFLAGS="$EXTRA_LDFLAGS -L${srcdir}/../prebuilt/640x480 -lEGL -lGLESv2"
         SUMMARY_video="${SUMMARY_video} mini"
     fi
 }
@@ -2482,7 +2482,7 @@ CheckMiniAudio()
         have_audio=yes
         have_audio_mini=yes
         EXTRA_CFLAGS="$EXTRA_CFLAGS -mcpu=cortex-a7 -mfpu=neon-vfpv4 -O3"
-        EXTRA_LDFLAGS="$EXTRA_LDFLAGS -ljson-c -L${srcdir}/../mini/lib -lmi_ao -lshmvar -lmi_common -lmi_sys -lmi_gfx"
+        EXTRA_LDFLAGS="$EXTRA_LDFLAGS -L${srcdir}/../mini/lib -lmi_ao -lshmvar -lmi_common -lmi_sys -lmi_gfx"
         SUMMARY_audio="${SUMMARY_audio} mini"
     fi
 }
