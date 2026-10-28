@@ -1,6 +1,6 @@
 # SDL2 Miyoo Mini
 
-SDL2 for the Miyoo Mini, base on https://github.com/steward-fu/sdl2 completed and optimized by ChatGPT
+SDL2 for the Miyoo Mini, based on https://github.com/steward-fu/sdl2 completed and optimized by ChatGPT
 
 ## Build
 In a [union-miyoomini-toolchain](https://github.com/shauninman/union-miyoomini-toolchain)] shell:
